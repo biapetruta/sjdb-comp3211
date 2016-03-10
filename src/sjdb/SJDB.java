@@ -15,13 +15,13 @@ public class SJDB {
 	 */
 	public static void main(String[] args) throws Exception {
 		// read serialised catalogue from file and parse
-		String catFile = args[0];
+		String catFile = "data/cat.txt";//args[0];
 		Catalogue cat = new Catalogue();
 		CatalogueParser catParser = new CatalogueParser(catFile, cat);
 		catParser.parse();
 		
 		// read stdin, parse, and build canonical query plan
-		QueryParser queryParser = new QueryParser(cat, new InputStreamReader(System.in));
+		QueryParser queryParser = new QueryParser(cat, new FileReader(new File("data/q4.txt")));
 		Operator plan = queryParser.parse();
 		
 		System.out.println(plan.toString());
