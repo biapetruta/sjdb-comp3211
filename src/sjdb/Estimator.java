@@ -1,11 +1,13 @@
 package sjdb;
 
-import java.util.List;
-import java.util.ArrayList;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.Iterator;
 
 public class Estimator implements PlanVisitor {
-
+	
+	// local record of attributes. Should have access to catalouge really....
+	Map<String, Attribute> attrs = new HashMap<String, Attribute>();
 
 	public Estimator() {
 		// empty constructor
@@ -22,7 +24,9 @@ public class Estimator implements PlanVisitor {
 		
 		Iterator<Attribute> iter = input.getAttributes().iterator();
 		while (iter.hasNext()) {
-			output.addAttribute(new Attribute(iter.next()));
+			Attribute attr = iter.next();
+			output.addAttribute(new Attribute(attr)); // add attribute to local record
+			attrs.put(attr.getName(), attr);
 		}
 		
 		op.setOutput(output);
@@ -32,6 +36,32 @@ public class Estimator implements PlanVisitor {
 	}
 	
 	public void visit(Select op) {
+		
+		Predicate p = op.getPredicate(); // the predicate
+		Attribute left = attrs.get(p.getLeftAttribute().getName()); // left attr != null
+		Attribute right; // right can be == null
+		
+		// get the input relation, which is the output of the input operator tree
+		Relation input = op.getInput().getOutput();
+		Relation output;
+		
+		if(p.equalsValue()) {
+			// attr = val
+			output = new Relation(input.getTupleCount()/left.getValueCount());
+		} else {
+			// attr = attr
+			right = attrs.get(p.getRightAttribute().getName());
+			output = new Relation(input.getTupleCount()/Math.max(left.getValueCount(), right.getValueCount()));
+		}
+		
+		// add the attributes from the original relation
+		Iterator<Attribute> iter = input.getAttributes().iterator();
+		while (iter.hasNext()) {
+			output.addAttribute(new Attribute(iter.next()));
+		}
+		
+		// set the output to select
+		op.setOutput(output);
 	}
 	
 	public void visit(Product op) {
