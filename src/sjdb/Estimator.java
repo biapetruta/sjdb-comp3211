@@ -26,19 +26,35 @@ public class Estimator implements PlanVisitor {
 		while (iter.hasNext()) {
 			Attribute attr = iter.next();
 			output.addAttribute(new Attribute(attr)); // add attribute to local record
-			attrs.put(attr.getName(), attr);
+			attrs.put(attr.getName(), new Attribute(attr));
 		}
 		
 		op.setOutput(output);
 	}
 
 	public void visit(Project op) {
+		
+		// get the inputs from the 
+		Relation input = op.getInput().getOutput();
+		Relation output = new Relation(input.getTupleCount());
+		
+		// add the attributes in the project
+		Iterator<Attribute> iter = op.getAttributes().iterator();
+		while (iter.hasNext()) {
+			// get the right attribute object from local record
+			output.addAttribute(new Attribute(attrs.get(iter.next().getName())));
+		}
+		
+		System.out.println("PROJECT " + output.getTupleCount());
+		
+		// set output for the project
+		op.setOutput(output);
 	}
 	
 	public void visit(Select op) {
 		
 		Predicate p = op.getPredicate(); // the predicate
-		Attribute left = attrs.get(p.getLeftAttribute().getName()); // left attr != null
+		Attribute left = new Attribute(attrs.get(p.getLeftAttribute().getName())); // left attr != null
 		Attribute right; // right can be == null
 		
 		// get the input relation, which is the output of the input operator tree
@@ -50,7 +66,7 @@ public class Estimator implements PlanVisitor {
 			output = new Relation(input.getTupleCount()/left.getValueCount());
 		} else {
 			// attr = attr
-			right = attrs.get(p.getRightAttribute().getName());
+			right = new Attribute(attrs.get(p.getRightAttribute().getName()));
 			output = new Relation(input.getTupleCount()/Math.max(left.getValueCount(), right.getValueCount()));
 		}
 		
@@ -59,6 +75,8 @@ public class Estimator implements PlanVisitor {
 		while (iter.hasNext()) {
 			output.addAttribute(new Attribute(iter.next()));
 		}
+		
+		System.out.println("SELECT " + output.getTupleCount());
 		
 		// set the output to select
 		op.setOutput(output);
@@ -84,6 +102,8 @@ public class Estimator implements PlanVisitor {
 		while (riter.hasNext()) {
 			output.addAttribute(new Attribute(riter.next()));
 		}
+		
+		System.out.println("PRODUCT " + output.getTupleCount());
 		
 		// set the output of the product
 		op.setOutput(output);
