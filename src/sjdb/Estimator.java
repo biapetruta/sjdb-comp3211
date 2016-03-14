@@ -35,6 +35,28 @@ public class Estimator implements PlanVisitor {
 	}
 	
 	public void visit(Product op) {
+		
+		// get output from two subtrees
+		Relation left = op.getLeft().getOutput();
+		Relation right = op.getRight().getOutput();
+		
+		// output of the product.c_tuple = left.c_tuple * right.c_tuple
+		Relation output = new Relation(left.getTupleCount() * right.getTupleCount());
+		
+		// add attributes from left
+		Iterator<Attribute> liter = left.getAttributes().iterator();
+		while (liter.hasNext()) {
+			output.addAttribute(new Attribute(liter.next()));
+		}
+		
+		// add attributes from right
+		Iterator<Attribute> riter = right.getAttributes().iterator();
+		while (riter.hasNext()) {
+			output.addAttribute(new Attribute(riter.next()));
+		}
+		
+		// set the output of the product
+		op.setOutput(output);
 	}
 	
 	public void visit(Join op) {

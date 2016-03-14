@@ -21,14 +21,14 @@ public class SJDB {
 		catParser.parse();
 		
 		// read stdin, parse, and build canonical query plan
-		QueryParser queryParser = new QueryParser(cat, new FileReader(new File("data/q4.txt")));
+		QueryParser queryParser = new QueryParser(cat, new FileReader(new File("data/q5.txt")));
 		Operator plan = queryParser.parse();
 		
 		System.out.println(plan.toString());
 		
 		// create estimator visitor and apply it to canonical plan
-		//Estimator est = new Estimator();
-		//plan.accept(est);
+		Estimator est = new Estimator();
+		plan.accept(est);
 		
 		// create optimised plan
 		//Optimiser opt = new Optimiser(cat);
