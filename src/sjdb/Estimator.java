@@ -55,7 +55,7 @@ public class Estimator implements PlanVisitor {
 		
 		Predicate p = op.getPredicate(); // the predicate
 		Attribute left = new Attribute(attrs.get(p.getLeftAttribute().getName())); // left attr != null
-		Attribute right; // right can be == null
+		Attribute right = null; // right can be == null
 		
 		// get the input relation, which is the output of the input operator tree
 		Relation input = op.getInput().getOutput();
@@ -70,10 +70,34 @@ public class Estimator implements PlanVisitor {
 			output = new Relation(input.getTupleCount()/Math.max(left.getValueCount(), right.getValueCount()));
 		}
 		
-		// add the attributes from the original relation
+		// add the attributes from the original relation except the section attrs, A, B
 		Iterator<Attribute> iter = input.getAttributes().iterator();
 		while (iter.hasNext()) {
-			output.addAttribute(new Attribute(iter.next()));
+			Attribute attr = iter.next();
+			if (!attr.equals(left) && !attr.equals(right)) output.addAttribute(new Attribute(attr));
+		}
+		
+		// the new attributes from select predicate with new value counts
+		Attribute select_left = null;
+		Attribute select_right = null;
+		
+		// attr = const
+		if (p.equalsValue()) select_left = new Attribute(left.getName(), 1);
+		else {
+			// attr = attr
+			int size = Math.min(left.getValueCount(), right.getValueCount());
+			select_left = new Attribute(left.getName(), size);
+			select_right = new Attribute(right.getName(), size);
+		}
+		
+		// add left attr always
+		output.addAttribute(select_left);
+		attrs.put(select_left.getName(), select_left); // add to local record
+		
+		// add right attr if there is any
+		if (select_right != null) {
+			output.addAttribute(select_right);
+			attrs.put(select_right.getName(), select_right); // add to local record
 		}
 		
 		System.out.println("SELECT " + output.getTupleCount());
@@ -110,5 +134,43 @@ public class Estimator implements PlanVisitor {
 	}
 	
 	public void visit(Join op) {
+		
+		// get output from two subtrees
+		Relation left = op.getLeft().getOutput();
+		Relation right = op.getRight().getOutput();
+		
+		Predicate p = op.getPredicate(); // the predicate
+		Attribute attr_left = new Attribute(attrs.get(p.getLeftAttribute().getName())); // left attr != null
+		Attribute attr_right = new Attribute(attrs.get(p.getRightAttribute().getName())); // right attr != null
+		
+		// output of the join.c_tuple = T(R) * T(S) / max ( V(R,A) , V(S,B) )
+		Relation output = new Relation(left.getTupleCount() * right.getTupleCount() / Math.max(attr_left.getValueCount(), attr_right.getValueCount()));
+		
+		// V(R_join, A) = V(R_join, A) = min ( V(R,A) , V(S,B) )
+		int uniq_size = Math.min(attr_left.getValueCount(), attr_right.getValueCount());
+		Attribute join_attr_left = new Attribute(attr_left.getName(), uniq_size);
+		Attribute join_attr_right = new Attribute(attr_right.getName(), uniq_size);
+		
+		// add the attributes from left relation
+		Iterator<Attribute> liter = left.getAttributes().iterator();
+		while (liter.hasNext()) {
+			Attribute attr = liter.next();
+			if(!attr.equals(attr_left)) output.addAttribute(new Attribute(attr));
+			else output.addAttribute(join_attr_left);
+		}
+		
+		// add the attributes from the right relation
+		Iterator<Attribute> riter = right.getAttributes().iterator();
+		while (liter.hasNext()) {
+			Attribute attr = riter.next();
+			if(!attr.equals(attr_right)) output.addAttribute(new Attribute(attr));
+			else output.addAttribute(join_attr_right);
+		}
+		
+		// add the attributes to the local record
+		attrs.put(join_attr_left.getName(), join_attr_left);
+		attrs.put(join_attr_right.getName(), join_attr_right);
+		
+		op.setOutput(output);
 	}
 }
