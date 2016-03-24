@@ -42,7 +42,8 @@ public class Estimator implements PlanVisitor {
 		Iterator<Attribute> iter = op.getAttributes().iterator();
 		while (iter.hasNext()) {
 			// get the right attribute object from local record
-			output.addAttribute(new Attribute(attrs.get(iter.next().getName())));
+			Attribute attr = iter.next();
+			output.addAttribute(new Attribute(attrs.get(attr.getName())));
 		}
 		
 		System.out.println("PROJECT " + output.getTupleCount());
@@ -70,7 +71,7 @@ public class Estimator implements PlanVisitor {
 			output = new Relation(input.getTupleCount()/Math.max(left.getValueCount(), right.getValueCount()));
 		}
 		
-		// add the attributes from the original relation except the section attrs, A, B
+		// add the attributes from the original relation except the selection attrs, A, B
 		Iterator<Attribute> iter = input.getAttributes().iterator();
 		while (iter.hasNext()) {
 			Attribute attr = iter.next();
