@@ -11,6 +11,7 @@ import sjdb.Attribute;
 import sjdb.Catalogue;
 import sjdb.DatabaseException;
 import sjdb.Estimator;
+import sjdb.Join;
 import sjdb.NamedRelation;
 import sjdb.Operator;
 import sjdb.Predicate;
@@ -201,10 +202,50 @@ public class EstimatorTest {
 	}
 
 	@Test
-	public void testVisitJoin() {
-		fail("Not yet implemented");
+	public void testVisitJoinVal() {
+		System.out.println("\n===========  testing join  ===========\n");
+		try {
+			// prepare operators
+			Scan left = new Scan(cat.getRelation("A"));
+			Scan right = new Scan(cat.getRelation("B"));
+			Predicate pred = new Predicate(cat.getAttribute("a"), cat.getAttribute("d"));
+			Join join_AB = new Join(left, right, pred);
+			
+			// print info
+			System.out.println("Input => " + left.getRelation().render() + "\n\t " + right.getRelation().render());
+			System.out.println("Pred ===> " + join_AB.getPredicate());
+			System.out.println("\n");
+			
+			// run estimator
+			join_AB.accept(est);
+			
+			// check
+			est(left, right, join_AB);
+			checkAttr(join_AB);
+		} catch (DatabaseException e) { fail("Relation A || B NOT in catalogue!"); }
 	}
 	
+	private void checkAttr(Join join_AB) {
+		Attribute left_attr = join_AB.getPredicate().getLeftAttribute();
+		Attribute right_attr = join_AB.getPredicate().getRightAttribute();
+		
+		// valuecount of left attr in result
+		int left_count = ((Attribute) (filterOutputAttributes(join_AB, attr -> attr.equals(left_attr))[0])).getValueCount();
+		// valuecount of right attr in result
+		int right_count = ((Attribute) (filterOutputAttributes(join_AB, attr -> attr.equals(right_attr))[0])).getValueCount();
+		// true valuecount
+		int actual = Math.min(left_attr.getValueCount(), right_attr.getValueCount());
+		
+		// if attr = attr, V(Output, a) = V(Output, b) = min(V(R, a), V(R, b))
+		assertEquals(left_count, actual);
+		assertEquals(right_count, actual);
+	}
+
+	private void est(Operator left, Operator right, Join join_AB) {
+		Predicate pred = join_AB.getPredicate();
+		assertEquals(left.getOutput().getTupleCount() * right.getOutput().getTupleCount()/(Math.max(pred.getLeftAttribute().getValueCount(), pred.getRightAttribute().getValueCount())), join_AB.getOutput().getTupleCount());
+	}
+
 	// check the estimated output relation size for PROJECT
 	private static void est(Operator input, Project project_Aa){
 		// T(PROJECT(R)) = T(R)
@@ -260,8 +301,11 @@ public class EstimatorTest {
 		Attribute left_attr = select_Aab.getPredicate().getLeftAttribute();
 		Attribute right_attr = select_Aab.getPredicate().getRightAttribute();
 		
+		// valuecount of left attr in result
 		int left_count = ((Attribute) (filterOutputAttributes(select_Aab, attr -> attr.equals(left_attr))[0])).getValueCount();
+		// valuecount of right attr in result
 		int right_count = ((Attribute) (filterOutputAttributes(select_Aab, attr -> attr.equals(right_attr))[0])).getValueCount();
+		// true valuecount
 		int actual = Math.min(left_attr.getValueCount(), right_attr.getValueCount());
 		
 		// if attr = attr, V(Output, a) = V(Output, b) = min(V(R, a), V(R, b))
@@ -270,7 +314,8 @@ public class EstimatorTest {
 	}
 	
 	private static Object[] filterOutputAttributes(Operator op, java.util.function.Predicate<? super Attribute> pred) {
-		return op.getOutput().getAttributes()
+		return op.getOutput()
+				.getAttributes()
 				.stream()
 				.filter(pred)
 				.toArray();

@@ -154,7 +154,7 @@ public class Estimator implements PlanVisitor {
 		
 		// add the attributes from the right relation
 		Iterator<Attribute> riter = right.getAttributes().iterator();
-		while (liter.hasNext()) {
+		while (riter.hasNext()) {
 			Attribute attr = riter.next();
 			if(!attr.equals(attr_right)) output.addAttribute(new Attribute(attr));
 			else output.addAttribute(join_attr_right);
