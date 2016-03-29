@@ -29,6 +29,8 @@ public class Estimator implements PlanVisitor {
 			attrs.put(attr.getName(), new Attribute(attr));
 		}
 		
+		System.out.println("SCAN " + output.render());
+		
 		op.setOutput(output);
 	}
 
@@ -39,14 +41,9 @@ public class Estimator implements PlanVisitor {
 		Relation output = new Relation(input.getTupleCount());
 		
 		// add the attributes in the project
-		Iterator<Attribute> iter = op.getAttributes().iterator();
-		while (iter.hasNext()) {
-			// get the right attribute object from local record
-			Attribute attr = iter.next();
-			output.addAttribute(new Attribute(attrs.get(attr.getName())));
-		}
+		op.getAttributes().forEach(attr -> output.addAttribute(new Attribute(attrs.get(attr.getName()))));
 		
-		System.out.println("PROJECT " + output.getTupleCount());
+		System.out.println("PROJECT " + output.render());
 		
 		// set output for the project
 		op.setOutput(output);
@@ -56,7 +53,9 @@ public class Estimator implements PlanVisitor {
 		
 		Predicate p = op.getPredicate(); // the predicate
 		Attribute left = new Attribute(attrs.get(p.getLeftAttribute().getName())); // left attr != null
-		Attribute right = null; // right can be == null
+		
+		// the new attributes from select predicate with new value counts
+		Attribute output_left_attr = null;
 		
 		// get the input relation, which is the output of the input operator tree
 		Relation input = op.getInput().getOutput();
@@ -65,43 +64,42 @@ public class Estimator implements PlanVisitor {
 		if(p.equalsValue()) {
 			// attr = val
 			output = new Relation(input.getTupleCount()/left.getValueCount());
+			output_left_attr = new Attribute(left.getName(), 1);
+			
+			// add the attributes from the original relation except the selection attrs, A			
+			input.getAttributes()
+				 .stream()
+				 .filter(attr -> !attr.equals(left))
+				 .forEach(attr -> output.addAttribute(new Attribute(attr)));
+			
+			// add left attr always
+			output.addAttribute(output_left_attr);
+			attrs.put(output_left_attr.getName(), output_left_attr); // add to local record
 		} else {
 			// attr = attr
-			right = new Attribute(attrs.get(p.getRightAttribute().getName()));
+			Attribute right = new Attribute(attrs.get(p.getRightAttribute().getName())); // right != null
 			output = new Relation(input.getTupleCount()/Math.max(left.getValueCount(), right.getValueCount()));
-		}
-		
-		// add the attributes from the original relation except the selection attrs, A, B
-		Iterator<Attribute> iter = input.getAttributes().iterator();
-		while (iter.hasNext()) {
-			Attribute attr = iter.next();
-			if (!attr.equals(left) && !attr.equals(right)) output.addAttribute(new Attribute(attr));
-		}
-		
-		// the new attributes from select predicate with new value counts
-		Attribute select_left = null;
-		Attribute select_right = null;
-		
-		// attr = const
-		if (p.equalsValue()) select_left = new Attribute(left.getName(), 1);
-		else {
-			// attr = attr
+			
 			int size = Math.min(left.getValueCount(), right.getValueCount());
-			select_left = new Attribute(left.getName(), size);
-			select_right = new Attribute(right.getName(), size);
+			output_left_attr = new Attribute(left.getName(), size);
+			Attribute output_right_attr = new Attribute(right.getName(), size);
+			
+			// add the attributes from the original relation except the selection attrs, A			
+			input.getAttributes()
+				 .stream()
+				 .filter(attr -> !attr.equals(left) && !attr.equals(right))
+				 .forEach(attr -> output.addAttribute(new Attribute(attr)));
+			
+			// add left attr always
+			output.addAttribute(output_left_attr);
+			attrs.put(output_left_attr.getName(), output_left_attr); // add to local record
+			
+			output.addAttribute(output_right_attr);
+			attrs.put(output_right_attr.getName(), output_right_attr); // add to local record
 		}
 		
-		// add left attr always
-		output.addAttribute(select_left);
-		attrs.put(select_left.getName(), select_left); // add to local record
 		
-		// add right attr if there is any
-		if (select_right != null) {
-			output.addAttribute(select_right);
-			attrs.put(select_right.getName(), select_right); // add to local record
-		}
-		
-		System.out.println("SELECT " + output.getTupleCount());
+		System.out.println("SELECT " + output.render());
 		
 		// set the output to select
 		op.setOutput(output);
@@ -117,18 +115,12 @@ public class Estimator implements PlanVisitor {
 		Relation output = new Relation(left.getTupleCount() * right.getTupleCount());
 		
 		// add attributes from left
-		Iterator<Attribute> liter = left.getAttributes().iterator();
-		while (liter.hasNext()) {
-			output.addAttribute(new Attribute(liter.next()));
-		}
+		left.getAttributes().forEach(attr -> output.addAttribute(new Attribute(attr)));
 		
 		// add attributes from right
-		Iterator<Attribute> riter = right.getAttributes().iterator();
-		while (riter.hasNext()) {
-			output.addAttribute(new Attribute(riter.next()));
-		}
+		right.getAttributes().forEach(attr -> output.addAttribute(new Attribute(attr)));
 		
-		System.out.println("PRODUCT " + output.getTupleCount());
+		System.out.println("PRODUCT " + output.render());
 		
 		// set the output of the product
 		op.setOutput(output);

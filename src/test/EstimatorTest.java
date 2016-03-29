@@ -11,6 +11,7 @@ import sjdb.Attribute;
 import sjdb.Catalogue;
 import sjdb.DatabaseException;
 import sjdb.Estimator;
+import sjdb.NamedRelation;
 import sjdb.Operator;
 import sjdb.Predicate;
 import sjdb.Product;
@@ -48,7 +49,7 @@ public class EstimatorTest {
 		cat.createAttribute("C", "h", 500);
 		cat.createAttribute("C", "i", 600);
 		
-		System.out.println("========  printing catalogue  ========");
+		System.out.println("========  printing catalogue  ========\n");
 		try {
 			System.out.println(cat.getRelation("A").render());
 			System.out.println(cat.getRelation("B").render());
@@ -62,9 +63,19 @@ public class EstimatorTest {
 	// test for scan(R)
 	@Test
 	public void testVisitScan() {
+		System.out.println("\n===========  testing scan  ===========\n");
 		try {
-			Operator scan_a = new Scan(cat.getRelation("A"));
+			// prepare the scan
+			Scan scan_a = new Scan(cat.getRelation("A"));
+			
+			// print info
+			System.out.println("Input ===> " + scan_a.getRelation().render());
+			System.out.println("\n");
+			
+			// run estimator
 			scan_a.accept(est);
+			
+			// check
 			assertEquals(1000, scan_a.getOutput().getTupleCount());
 		} catch (DatabaseException e) { fail("Relation A NOT in catalogue!"); }
 	}
@@ -72,11 +83,23 @@ public class EstimatorTest {
 	// test for project single attr
 	@Test
 	public void testVisitProjectSingleAttr() {
+		System.out.println("\n===========  testing project attr  ===========\n");
 		try {
+			// prepare operators
 			Attribute attrs[] = {cat.getAttribute("a")};
-			Operator input = new Scan(cat.getRelation("A"));
+			Scan input = new Scan(cat.getRelation("A"));
 			Project project_Aa = new Project(input, Arrays.asList(attrs));
+			
+			// print info
+			System.out.println("Input ===> " + input.getRelation().render());
+			System.out.print("Attrs ===> ");
+			project_Aa.getAttributes().forEach(attr -> System.out.print(" " + attr + ":" + attr.getValueCount()));
+			System.out.println("\n\n");
+			
+			// run estimator
 			project_Aa.accept(est);
+			
+			// check
 			est(input, project_Aa);
 			checkAttr(project_Aa);
 		} catch (DatabaseException e) { fail("Relation A || Attribute a NOT in catalogue!"); }
@@ -85,11 +108,23 @@ public class EstimatorTest {
 	// test for project multiple attr
 	@Test
 	public void testVisitProjectMultipleAttr() {
+		System.out.println("\n===========  testing project attrs  ===========\n");
 		try {
+			// prepare operators
 			Attribute attrs[] = {cat.getAttribute("a"), cat.getAttribute("b"), cat.getAttribute("c")};
-			Operator input = new Scan(cat.getRelation("A"));
+			Scan input = new Scan(cat.getRelation("A"));
 			Project project_Aabc = new Project(input, Arrays.asList(attrs));
+			
+			// print info
+			System.out.println("Input ===> " + input.getRelation().render());
+			System.out.print("Attrs ===> ");
+			project_Aabc.getAttributes().forEach(attr -> System.out.print(" " + attr + ":" + attr.getValueCount()));
+			System.out.println("\n\n");
+			
+			// run estimator
 			project_Aabc.accept(est);
+			
+			// check
 			est(input, project_Aabc);
 			checkAttr(project_Aabc);
 		} catch (DatabaseException e) { fail("Relation A || Attribute a NOT in catalogue!"); }
@@ -98,11 +133,22 @@ public class EstimatorTest {
 	// test for select attr = val
 	@Test
 	public void testVisitSelectVal() {
+		System.out.println("\n===========  testing select attr = val  ===========\n");
 		try {
+			// prepare operators
 			Predicate pred = new Predicate(cat.getAttribute("a"), "a_1");
-			Operator input = new Scan(cat.getRelation("A"));
+			Scan input = new Scan(cat.getRelation("A"));
 			Select select_A_a_val = new Select(input, pred);
+			
+			// print info
+			System.out.println("Input ===> " + input.getRelation().render());
+			System.out.println("Pred ===> " + select_A_a_val.getPredicate());
+			System.out.println("\n");
+			
+			// run estimator
 			select_A_a_val.accept(est);
+			
+			// check
 			est(input, select_A_a_val);
 			checkAttr(select_A_a_val);
 		} catch (DatabaseException e) { fail("Relation A || Attribute a NOT in catalogue!"); }
@@ -111,11 +157,22 @@ public class EstimatorTest {
 	// test for select attr = attr
 	@Test
 	public void testVisitSelectAttr() {
+		System.out.println("\n===========  testing project attr = attr  ===========\n");
 		try {
+			// prepare operators
 			Predicate pred = new Predicate(cat.getAttribute("a"), cat.getAttribute("b"));
-			Operator input = new Scan(cat.getRelation("A"));
+			Scan input = new Scan(cat.getRelation("A"));
 			Select select_A_a_val = new Select(input, pred);
+			
+			// print info
+			System.out.println("Input ===> " + input.getRelation().render());
+			System.out.println("Pred ===> " + select_A_a_val.getPredicate());
+			System.out.println("\n");
+			
+			// run estimator
 			select_A_a_val.accept(est);
+			
+			// check
 			est(input, select_A_a_val);
 		} catch (DatabaseException e) { fail("Relation A || Attribute a || Attribute b NOT in catalogue!"); }
 	}
@@ -123,11 +180,21 @@ public class EstimatorTest {
 	// test for product
 	@Test
 	public void testVisitProduct() {
+		System.out.println("\n===========  testing product  ===========\n");
 		try {
-			Operator left = new Scan(cat.getRelation("A"));
-			Operator right = new Scan(cat.getRelation("B"));
+			// prepare operators
+			Scan left = new Scan(cat.getRelation("A"));
+			Scan right = new Scan(cat.getRelation("B"));
 			Product product_ab = new Product(left, right);
+			
+			// print info
+			System.out.println("Input => " + left.getRelation().render() + "\n\t " + right.getRelation().render());
+			System.out.println("\n");
+			
+			// run estimator
 			product_ab.accept(est);
+			
+			// check
 			est(left, right, product_ab);
 			checkAttr(product_ab);
 		} catch (DatabaseException e) { fail("Relation A || B NOT in catalogue!"); }
