@@ -31,35 +31,15 @@ public class Optimiser {
 		//Shakibs method
 		List<Operator> operationBlocks = firstStage(s.allScans, s.allAttributes, s.allPredicates);
 		
-		System.out.println("###");
-		for (Operator o : operationBlocks) {
-			System.out.println(o.getOutput().getTupleCount());
-		}
-		System.out.println("###");
+		//Sort operationBlocks on estimated size
+		//Collections.sort(operationBlocks, new tupleCountComparator());
 		
-		//Sort operationBlocks on estimated size //TODO check if ascending or descending
-		Collections.sort(operationBlocks, new tupleCountComparator());
-		
-		@SuppressWarnings("unused")
 		Operator secondStageResult = buildProductOrJoin(operationBlocks, s.allPredicates);
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		System.out.println("###");
-		System.out.println(secondStageResult.getOutput().getTupleCount());
-		System.out.println("###");
-		
-		return null;
+	
+		if (plan instanceof Project)
+			return new Project(secondStageResult, ((Project) plan).getAttributes());
+		else
+			return secondStageResult;
 	}
 
 	
@@ -68,6 +48,18 @@ public class Optimiser {
 	    public int compare(Operator o1, Operator o2) {
 	        return Integer.valueOf(o1.output.getTupleCount()).compareTo(Integer.valueOf(o2.output.getTupleCount()));
 	    }
+	}
+	
+	private static Operator checkOperatorForAttribute(List<Operator> oList, Attribute attr){
+		Iterator<Operator> oIt = oList.iterator();
+		while(oIt.hasNext()){
+			Operator curOp = oIt.next();
+			if (curOp.getOutput().getAttributes().contains(attr)){
+				oIt.remove();
+				return curOp;
+			}
+		}
+		return null;
 	}
 
 	public static Operator buildProductOrJoin(List<Operator> ops, Set<Predicate> preds){
@@ -80,51 +72,27 @@ public class Optimiser {
 			return result;
 		}
 		
-		Stack<Operator> opStack = new Stack<>();
-		
-		Collections.reverse(ops);
-		opStack.addAll(ops);
-		
-		while(opStack.size() != 1) {
-			Operator left = opStack.pop();
-			Operator right = opStack.pop();
+		Iterator<Predicate> it = preds.iterator();
+		while(it.hasNext()){
+			Predicate currentPred = it.next();
+			Operator left = checkOperatorForAttribute(ops, currentPred.getLeftAttribute());
+			Operator right = checkOperatorForAttribute(ops, currentPred.getRightAttribute());
+			Operator newResult = null;
 			
-			List<Attribute> allAvailable = new ArrayList<>();
-			allAvailable.addAll(left.getOutput().getAttributes());
-			allAvailable.addAll(right.getOutput().getAttributes());
-			
-			boolean join = false;
-			Iterator<Predicate> it = preds.iterator();
-			while(it.hasNext() && !join){
-				Predicate currentPred = it.next();
-				List<Attribute> needed = new ArrayList<>();
-				
-				needed.add(currentPred.getLeftAttribute());
-				needed.add(currentPred.getRightAttribute());
-				
-				if (allAvailable.containsAll(needed)){
-					// create join
-					Join j = new Join(left, right, currentPred);
-					j.accept(est);
-					opStack.push(j);
-					it.remove();
-					
-					join = true;
-				}
+			if(left == null || right == null){
+				newResult = new Select(left != null? left : right, currentPred);
+				it.remove();
+			}
+			if(left != null && right != null){
+				newResult = new Join(left, right, currentPred);
+				it.remove();
 			}
 			
-			if (!join) {
-				// create product
-				Product p = new Product(left, right);
-				p.accept(est);
-				opStack.push(p);
-			}
+			newResult.accept(est);
+			ops.add(newResult);
 		}
 		
-		result = opStack.pop();
-		result.accept(est);
-		
-		return result;
+		return ops.get(0);
 	}
 
 	public static Operator buildSelectsOnTop(Operator op, Set<Predicate> preds){

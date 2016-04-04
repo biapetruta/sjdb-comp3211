@@ -30,11 +30,15 @@ public class SJDB {
 		Estimator est = new Estimator();
 		plan.accept(est);
 		
+		System.out.println("-------------------------------------------------------------------------------------------------");
+		
 		// create optimised plan
 		Optimiser opt = new Optimiser(cat);
 		Operator optPlan = opt.optimise(plan);
 		
-		//System.out.println(optPlan.toString());
+		System.out.println("-------------------------------------------------------------------------------------------------");
+		
+		System.out.println(optPlan.toString());
 	}
 
 }
