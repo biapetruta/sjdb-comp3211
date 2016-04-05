@@ -40,7 +40,6 @@ public class Optimiser {
 		
 		List<List<Predicate>> permutedPredicates = generatePerm(preds);
 		
-		
 		Operator cheapestPlan = null;
 		Integer cheapestCost = Integer.MAX_VALUE;
 		
@@ -60,20 +59,103 @@ public class Optimiser {
 		
 		System.out.println("Cheapest cost = " + est.getCost(cheapestPlan));
 		
-//		if (plan instanceof Project)
-//			return new Project(cheapestPlan, ((Project) plan).getAttributes());
-//		else
-			return cheapestPlan;
-		
-		
-		
-	
-//		if (plan instanceof Project)
-//			return new Project(secondStageResult, ((Project) top).getAttributes());
-//		else
-//			return secondStageResult;
+		return cheapestPlan;
 	}
+	
+	/**
+	 * for each scan or relations at the leaves, process it as much as possible.
+	 * the output operator should be 
+	 * SCAN => [SELECT] x n => [PROJECT]_neededAttrs
+	 * 
+	 * @param scans the SCAN operators
+	 * @param attrs the COMPLETE set of ATTRIBUTES needed from the scans
+	 * @param predicates the COMPLETE set of PREDICATES needed from the scans
+	 * @return the List of Operator BLOCKS in (SCAN => [SELECT] x n => [PROJECT]_neededAttrs) form,
+	 * 			predicates will be mutated and truncated by removing the used ones
+	 */
+	public static List<Operator> firstStage(Set<Scan> scans, Set<Attribute> attrs, Set<Predicate> predicates) {
+		
+		// the block of resultant operators from each of the SCANs
+		List<Operator> operatorBlocks = new ArrayList<>(scans.size());
+		
+		for (Scan s: scans){
+			// to SCAN => [SELECT] x n
+			Operator o = buildSelectsOnTop(s, predicates);
+			// [SCAN] || [SELECT] x n => [PROJECT]
+			operatorBlocks.add(buildProjectOnTop(o, attrs));
+		}
+		
+		return operatorBlocks;
+	}
+	
+	/**
+	 * Iterate over the preds to see if any be applied on top of op.
+	 * Then builds [multiple] SELECT Operators on top of op and returnds the topmost one.
+	 * 
+	 * @param op Operator to build SELECT operators on top of
+	 * @param preds the set of PREDICATEs to choose from
+	 * @return an Operator that is in the form of (op => [SELECT] x n) and
+	 * 			the Set of PREDICATES is mutated and truncated by removing the used ones
+	 */
+	public static Operator buildSelectsOnTop(Operator op, Set<Predicate> preds){
+		
+		// The result
+		Operator result = op;
+		// the attributes available at this point, building SELECT doesn't remove any attributes
+		List<Attribute> availableAttrs = result.getOutput().getAttributes();
+			
+		// Iterate over the PREDICATEs to see if any are applicable to the latest Operator in the list
+		Iterator<Predicate> it = preds.iterator();
+		while(it.hasNext()){
+	
+			Predicate currentPred = it.next();
+			
+			// If output of the latest Operator isn't set, set it
+			if(result.getOutput() == null) result.accept(est);
+			
+			// attr = val and the ATTRIBUTE comes from the Operator's output relation
+			if ((currentPred.equalsValue() && availableAttrs.contains(currentPred.getLeftAttribute())) || 
+				(!currentPred.equalsValue() && availableAttrs.contains(currentPred.getLeftAttribute()) && availableAttrs.contains(currentPred.getRightAttribute()))) 
+			{
+				// add a new SELECT operator on top, note how the output isn't set
+				result = new Select(result, currentPred);
+				// remove the PREDICATE because it's been dealt with
+				it.remove();
+			}
+			
+		}
+		
+		return result;
+	}
+	
+	/**
+	 * Goes through the Set of needed ATTRIBUTEs and 
+	 * checks which one of the current ATTRIBUTEs are needed.
+	 * 
+	 * If not ALL ATTRIBUTEs are needed, then puts a PROJECT on top.
+	 * 
+	 * @param op the Operator to build the project on Top of
+	 * @param attrs the Set of ATTRIBUTES to check for
+	 * @return an Operator in the form of [op] || [PROJECT => op]
+	 */
+	public static Operator buildProjectOnTop(Operator op, Set<Attribute> attrs){
 
+		// if op doesn't have an output, fix that
+		if(op.getOutput() == null) op.accept(est);
+		
+		// see which attributes are to be projected
+		List<Attribute> attrsToProjectFromOp = new ArrayList<>(attrs);
+		attrsToProjectFromOp.retainAll(op.getOutput().getAttributes());
+		
+		// not all attributes from op is necessary
+		if (attrsToProjectFromOp.size() > 0) {
+			Operator op2 = new Project(op, attrsToProjectFromOp);
+			op2.accept(est);
+			return op2;
+		} else {
+			return op;
+		}
+	}
 	
 	public class tupleCountComparator implements Comparator<Operator> {
 	    @Override
@@ -136,73 +218,13 @@ public class Optimiser {
 					ops.add(tempProj);
 				}
 			}
-			
 		}
+		
+		
 		
 		result = ops.get(0);
 		
 		return ops.get(0);
-	}
-
-	public static Operator buildSelectsOnTop(Operator op, Set<Predicate> preds){
-		List<Operator> oList = new ArrayList<>();
-		oList.add(op);
-			
-		Iterator<Predicate> it = preds.iterator();
-		while(it.hasNext()){
-			
-			Predicate currentPred = it.next();
-			Operator last = oList.get(oList.size()-1);
-			
-			if(last.getOutput() == null) last.accept(est);
-			
-			// attr = val
-			if (currentPred.equalsValue() && 
-				last.getOutput().getAttributes().contains(currentPred.getLeftAttribute())) 
-			{
-				oList.add(new Select(last, new Predicate(new Attribute(currentPred.getLeftAttribute().getName(),
-															   currentPred.getLeftAttribute().getValueCount()),
-												 currentPred.getRightValue())));
-				it.remove();
-			}
-				
-			if (!currentPred.equalsValue() && 
-				last.getOutput().getAttributes().contains(currentPred.getLeftAttribute()) &&
-				last.getOutput().getAttributes().contains(currentPred.getRightAttribute()))
-			{
-				oList.add(new Select(last, new Predicate(new Attribute(currentPred.getLeftAttribute().getName(),
-												  			   currentPred.getLeftAttribute().getValueCount()), 
-												 new Attribute(currentPred.getRightAttribute().getName(),
-														  	   currentPred.getRightAttribute().getValueCount()))));
-				it.remove();
-			}
-		}
-		
-		return oList.get(oList.size()-1);
-	}
-	
-	public static Operator buildProjectOnTop(Operator op, Set<Attribute> attrs){
-		// see which attributes are to be projected and add a project on top of it 
-		List<Attribute> applicable = new ArrayList<>();
-		
-		if(op.getOutput() == null) op.accept(est);
-		
-		Iterator<Attribute> attrIt = attrs.iterator();
-		while(attrIt.hasNext()){
-			Attribute attr = attrIt.next();
-			if (op.getOutput().getAttributes().contains(attr)){
-				applicable.add(attr);
-				attrIt.remove();
-			}
-		}
-		
-		if (applicable.size() > 0) {
-			Operator op2 = new Project(op, applicable);
-			op2.accept(est);
-			return op2;
-		} else {
-			return op;
-		}
 	}
 	
 	private static Set<Attribute> getNecessaryAttrs(List<Predicate> predicates, Operator top){
@@ -217,17 +239,6 @@ public class Optimiser {
 		}
 		if (top instanceof Project) attrsNeeded.addAll(((Project) top).getAttributes());
 		return attrsNeeded;
-	}
-	
-	public static List<Operator> firstStage(Set<Scan> scans, Set<Attribute> attrs, Set<Predicate> predicates) {
-		List<Operator> ops = new ArrayList<>(scans.size());
-		
-		for (Scan s: scans){
-			Operator o = buildSelectsOnTop(s, predicates);
-			ops.add(buildProjectOnTop(o, attrs));
-		}
-		
-		return ops;
 	}
 	
 	private List<List<Predicate>> generatePerm(List<Predicate> original) {
@@ -282,7 +293,6 @@ public class Optimiser {
 
 		@Override
 		public void visit(Product op) {}
-
 		@Override
 		public void visit(Join op) {}		
 	}
