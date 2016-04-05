@@ -24,21 +24,25 @@ public class SJDB {
 		QueryParser queryParser = new QueryParser(cat, new FileReader(new File("data/q5.txt")));
 		Operator plan = queryParser.parse();
 		
+		System.out.println("-----------------------------  PLAN  -------------------------------------------------------------");
+		
 		System.out.println(plan.toString());
 		
 		// create estimator visitor and apply it to canonical plan
 		Estimator est = new Estimator();
 		plan.accept(est);
 		
-		System.out.println("-------------------------------------------------------------------------------------------------");
+		System.out.println("-----------------------------  OPTIMISING  -------------------------------------------------------");
 		
 		// create optimised plan
 		Optimiser opt = new Optimiser(cat);
 		Operator optPlan = opt.optimise(plan);
 		
-		System.out.println("-------------------------------------------------------------------------------------------------");
+		System.out.println("-----------------------------  OPTMISE  ----------------------------------------------------------");
 		
 		System.out.println(optPlan.toString());
+		
+		System.out.println("CheapEST cost = " + est.getCost(optPlan));
 	}
 
 }

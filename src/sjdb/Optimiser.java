@@ -1,21 +1,26 @@
 package sjdb;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.Stack;
 import java.util.stream.Collectors;
 
+/**
+ * This class will optimise an Operator plan.
+ * Call optimise.
+ * 
+ * @author shakib-bin hamid
+ * 
+ */
 public class Optimiser {
 	
-	private Catalogue cat;
+	@SuppressWarnings("unused")
+	private Catalogue cat; // taken care of in the estimator
 	
-	private static final Estimator est = new Estimator();
-	private static Operator top;
+	private static final Estimator EST = new Estimator(); // the Estimator in Use here
+	private static Operator root; // 
 
 	public Optimiser(Catalogue cat) {
 		this.cat = cat;
@@ -23,43 +28,64 @@ public class Optimiser {
 
 	public Operator optimise(Operator plan) {
 		
-		top = plan;
+		root = plan;
 	
-		Sections s = new Sections();
-		plan.accept(s);
+		SectionExtractor extractor = new SectionExtractor();
+		plan.accept(extractor);
 		
-		System.out.println("Attributes: " + s.allAttributes);
-		System.out.println("Predicates: " + s.allPredicates);
-		System.out.println("Scans: " + s.allScans);
+		// push down the SELECTs and PROJECTs to the Scan leaves on the canonical plan
+		List<Operator> operationBlocks = pushSelectsAndProjectsDownForScans(extractor.allScans, extractor.allAttributes, extractor.allPredicates);
 		
-		//Shakibs method
-		List<Operator> operationBlocks = firstStage(s.allScans, s.allAttributes, s.allPredicates);
+		// then from those blocks, exhaust the SELECTS by creating JOINs, 
+		// putting extra SELECTs and remove unnecessary ATTRIBUTES by adding PROJECTs as we go along and 
+		// finally make PRODUCTs if necessary, once all that could be selected or projected or joined
+		// reorder for each permutation of predicate order
+		Operator optimisedPlan = createBESTOrderOfJoinOrProducts(extractor.allPredicates, operationBlocks);
 		
+		return optimisedPlan;
+	}
+	
+	/**
+	 * Create a permutation of the PREDICATEs Set, then
+	 * Make a JOIN ordering for each, ESTimate the cost and 
+	 * Select the CHEAPEST JOIN ordering
+	 * 
+	 * @param preds the Set of PREDICATEs to Permute (Will get turned to List inside)
+	 * @param ops the List of Operators to build the tree out of
+	 * @return
+	 */
+	public static Operator createBESTOrderOfJoinOrProducts(Set<Predicate> originalPreds, List<Operator> ops){
+		
+		// The list of PREDICATEs - necessary to permute on List, Set does not permute
 		List<Predicate> preds = new ArrayList<>();
-		preds.addAll(s.allPredicates);
+		preds.addAll(originalPreds);
 		
-		List<List<Predicate>> permutedPredicates = generatePerm(preds);
+		// Permuations of PREDICATEs
+		List<List<Predicate>> permutedPreds = generatePerm(preds);
 		
-		Operator cheapestPlan = null;
-		Integer cheapestCost = Integer.MAX_VALUE;
+		// CheapEST plan found so far
+		Operator cheapESTPlan = null;
+		Integer cheapESTCost = Integer.MAX_VALUE;
 		
-		for (List<Predicate> p : permutedPredicates) {
+		// Iterate for each permutation
+		for (List<Predicate> p : permutedPreds) {
 			
-			List<Operator> blocks = new ArrayList<>();
-			blocks.addAll(operationBlocks);
+			// create a fresh set of operators
+			List<Operator> tempOps = new ArrayList<>();
+			tempOps.addAll(ops);
 			
-			Operator aPlan = buildProductOrJoin(blocks, p);
+			// make a tree
+			Operator aPlan = buildProductOrJoin(tempOps, p);
 			
-			Integer i = est.getCost(aPlan);
+			Integer i = EST.getCost(aPlan);
 			System.out.println("Found plan with cost: " + i);
 			
-			cheapestPlan = (i < cheapestCost) ? aPlan : cheapestPlan;
-			cheapestCost = (i < cheapestCost) ? i : cheapestCost;
+			// make the cheapEST plan
+			cheapESTPlan = (i < cheapESTCost) ? aPlan : cheapESTPlan;
+			cheapESTCost = (i < cheapESTCost) ? i : cheapESTCost;
 		}
 		
-		System.out.println("Cheapest cost = " + est.getCost(cheapestPlan));
-		
-		return cheapestPlan;
+		return cheapESTPlan;
 	}
 	
 	/**
@@ -73,7 +99,7 @@ public class Optimiser {
 	 * @return the List of Operator BLOCKS in (SCAN => [SELECT] x n => [PROJECT]_neededAttrs) form,
 	 * 			predicates will be mutated and truncated by removing the used ones
 	 */
-	public static List<Operator> firstStage(Set<Scan> scans, Set<Attribute> attrs, Set<Predicate> predicates) {
+	public static List<Operator> pushSelectsAndProjectsDownForScans(Set<Scan> scans, Set<Attribute> attrs, Set<Predicate> predicates) {
 		
 		// the block of resultant operators from each of the SCANs
 		List<Operator> operatorBlocks = new ArrayList<>(scans.size());
@@ -89,10 +115,10 @@ public class Optimiser {
 	}
 	
 	/**
-	 * Iterate over the preds to see if any be applied on top of op.
-	 * Then builds [multiple] SELECT Operators on top of op and returnds the topmost one.
+	 * Iterate over the preds to see if any be applied on root of op.
+	 * Then builds [multiple] SELECT Operators on root of op and returnds the rootmost one.
 	 * 
-	 * @param op Operator to build SELECT operators on top of
+	 * @param op Operator to build SELECT operators on root of
 	 * @param preds the set of PREDICATEs to choose from
 	 * @return an Operator that is in the form of (op => [SELECT] x n) and
 	 * 			the Set of PREDICATES is mutated and truncated by removing the used ones
@@ -104,20 +130,20 @@ public class Optimiser {
 		// the attributes available at this point, building SELECT doesn't remove any attributes
 		List<Attribute> availableAttrs = result.getOutput().getAttributes();
 			
-		// Iterate over the PREDICATEs to see if any are applicable to the latest Operator in the list
+		// Iterate over the PREDICATEs to see if any are applicable to the latEST Operator in the list
 		Iterator<Predicate> it = preds.iterator();
 		while(it.hasNext()){
 	
 			Predicate currentPred = it.next();
 			
-			// If output of the latest Operator isn't set, set it
-			if(result.getOutput() == null) result.accept(est);
+			// If output of the latEST Operator isn't set, set it
+			if(result.getOutput() == null) result.accept(EST);
 			
 			// attr = val and the ATTRIBUTE comes from the Operator's output relation
 			if ((currentPred.equalsValue() && availableAttrs.contains(currentPred.getLeftAttribute())) || 
 				(!currentPred.equalsValue() && availableAttrs.contains(currentPred.getLeftAttribute()) && availableAttrs.contains(currentPred.getRightAttribute()))) 
 			{
-				// add a new SELECT operator on top, note how the output isn't set
+				// add a new SELECT operator on root, note how the output isn't set
 				result = new Select(result, currentPred);
 				// remove the PREDICATE because it's been dealt with
 				it.remove();
@@ -132,7 +158,7 @@ public class Optimiser {
 	 * Goes through the Set of needed ATTRIBUTEs and 
 	 * checks which one of the current ATTRIBUTEs are needed.
 	 * 
-	 * If not ALL ATTRIBUTEs are needed, then puts a PROJECT on top.
+	 * If not ALL ATTRIBUTEs are needed, then puts a PROJECT on root.
 	 * 
 	 * @param op the Operator to build the project on Top of
 	 * @param attrs the Set of ATTRIBUTES to check for
@@ -141,7 +167,7 @@ public class Optimiser {
 	public static Operator buildProjectOnTop(Operator op, Set<Attribute> attrs){
 
 		// if op doesn't have an output, fix that
-		if(op.getOutput() == null) op.accept(est);
+		if(op.getOutput() == null) op.accept(EST);
 		
 		// see which attributes are to be projected
 		List<Attribute> attrsToProjectFromOp = new ArrayList<>(attrs);
@@ -150,24 +176,125 @@ public class Optimiser {
 		// not all attributes from op is necessary
 		if (attrsToProjectFromOp.size() > 0) {
 			Operator op2 = new Project(op, attrsToProjectFromOp);
-			op2.accept(est);
+			op2.accept(EST);
 			return op2;
 		} else {
 			return op;
 		}
 	}
-	
-	public class tupleCountComparator implements Comparator<Operator> {
-	    @Override
-	    public int compare(Operator o1, Operator o2) {
-	        return Integer.valueOf(o1.output.getTupleCount()).compareTo(Integer.valueOf(o2.output.getTupleCount()));
-	    }
+	/**
+	 * Go through each of the PREDICATEs and 
+	 * see if any can be applied to any ONE/PAIR of Operators.
+	 * 
+	 * If no Operator found for a PREDICATE, make a PRODUCT,
+	 * If ONE Operator found for a PREDICATE, make a SELECT,
+	 * If TWO Operators found for a PREDICATE, make a JOIN
+	 * 
+	 * Also, if at any point, some ATTRIBUTE is not necessary, it is PROJECTed OUT.
+	 * 
+	 * Finally one Operator will be returned with all such operations performed
+	 * 
+	 * @param ops the List of Operators to process into PRODUCTs, JOINs or SELECTs
+	 * @param preds The List of Predicates to check through
+	 * @return One Operator where all the operations are performed in form
+	 * 			[JOIN] x n <=> [SELECT] x n <=> [TIMES] x n <=> [PROJECT] x n
+	 */
+	public static Operator buildProductOrJoin(List<Operator> ops, List<Predicate> preds){
+		
+		Operator result = null;
+		
+		if (ops.size() == 1){
+			result = ops.get(0);
+			if (result.getOutput() == null) result.accept(EST);
+			return result;
+		}
+		
+		// First Iterate over the PREDICATEs and 
+		// EXHAUST it until they've been made into JOINs or SELECTs
+		Iterator<Predicate> it = preds.iterator();
+		while(it.hasNext()){
+			
+			Predicate currentPred = it.next();
+			// The potential Operator with the left ATTRIBUTE in its output Relation
+			Operator left = extractOperatorForAttribute(ops, currentPred.getLeftAttribute());
+			// The potential Operator with the left ATTRIBUTE in its output Relation
+			Operator right = extractOperatorForAttribute(ops, currentPred.getRightAttribute());
+			
+			// if only ONE potential Operators found for the PREDICATE, create a SELECT
+			if((left == null && right != null) || (right == null && left != null)){
+				result = new Select(left != null? left : right, currentPred);
+				it.remove();
+			}
+			
+			// if BOTH potential Operators found for the PREDICATE, create a JOIN
+			if(left != null && right != null){
+				result = new Join(left, right, currentPred);
+				it.remove();
+			}
+			
+			// if the output Relation hasn't been sorted yet
+			if (result.getOutput() == null) result.accept(EST);
+			
+			// get the ATTRIBUTEs still needed based on the remaining predicates and the very rootmost root
+			Set<Attribute> neededAttrs = getNecessaryAttrs(preds, root);
+			
+			// Now if NOT ALL ATTRIBUTEs available now are necessary, PROJECT some OUT
+			List<Attribute> availableAttrs = result.getOutput().getAttributes();
+			
+			// if no ATTRIBUTE can be left out
+			if (neededAttrs.size() == availableAttrs.size() && availableAttrs.containsAll(neededAttrs)){
+				ops.add(result);
+			}else{
+				// the ATTRIBUTE needed to be kept
+				List<Attribute> attrsToKeep = availableAttrs.stream().filter(attr -> neededAttrs.contains(attr)).collect(Collectors.toList());
+				
+				if (attrsToKeep.size() == 0) {
+					ops.add(result); // Otherwise it's vacuously true and causes a BUG
+				} else {
+					Project tempProj = new Project(result, attrsToKeep);
+					tempProj.accept(EST); // set the output Relation right
+					ops.add(tempProj);
+				}
+			}
+		}
+		
+		// Now if multiple Operators have been made, turn them into PRODUCTs, because no PREDICATEs are left
+		while(ops.size() > 1) {
+			// Get the first two
+			Operator b1 = ops.get(0);
+			Operator b2 = ops.get(1);
+			Operator product = new Product(b1, b2);
+			product.accept(EST);
+			
+			// remove the first two and add the new one
+			ops.remove(b1);
+			ops.remove(b2);
+			ops.add(product);
+		}
+		
+		result = ops.get(0); // Finally, get the root one in the List, should be ONE left anyway
+		
+		return result;
 	}
 	
-	private static Operator checkOperatorForAttribute(List<Operator> oList, Attribute attr){
+	/**
+	 * Checks a list of Operators to see if any has the ATTRIBUTE in its output Relation.
+	 * 
+	 * If it does, then the Operator is extracted from the List and Returned,
+	 * If mulitple matches are found, only the first match is returned.
+	 * 
+	 * @param oList the List of Operators to check for a match
+	 * @param attr the ATTRIBUTE to match
+	 * @return an Operator if a match is found, null otherwise
+	 */
+	private static Operator extractOperatorForAttribute(List<Operator> oList, Attribute attr){
+	
+		// go through the Operators
 		Iterator<Operator> oIt = oList.iterator();
 		while(oIt.hasNext()){
+			
 			Operator curOp = oIt.next();
+			// If the Operator contains the attribute in its output Relation, remove and return it
 			if (curOp.getOutput().getAttributes().contains(attr)){
 				oIt.remove();
 				return curOp;
@@ -175,126 +302,91 @@ public class Optimiser {
 		}
 		return null;
 	}
-
-	public static Operator buildProductOrJoin(List<Operator> ops, List<Predicate> preds){
-		
-		Operator result = null;
-		
-		if (ops.size() == 1){
-			result = ops.get(0);
-			result.accept(est);
-			return result;
-		}
-		
-		Iterator<Predicate> it = preds.iterator();
-		while(it.hasNext()){
-			Predicate currentPred = it.next();
-			Operator left = checkOperatorForAttribute(ops, currentPred.getLeftAttribute());
-			Operator right = checkOperatorForAttribute(ops, currentPred.getRightAttribute());
-			Operator newResult = null;
-			
-			if(left == null || right == null){
-				newResult = new Select(left != null? left : right, currentPred);
-				it.remove();
-			}
-			if(left != null && right != null){
-				newResult = new Join(left, right, currentPred);
-				it.remove();
-			}
-			
-			newResult.accept(est);
-			//ops.add(newResult);
-			Set<Attribute> neededAttrs = getNecessaryAttrs(preds, top);
-			if (neededAttrs.size() == newResult.getOutput().getAttributes().size() &&
-					newResult.getOutput().getAttributes().containsAll(neededAttrs)){
-				ops.add(newResult);
-			}else{
-				List<Attribute> neededFromNowOn = newResult.getOutput().getAttributes().stream().filter(attr -> neededAttrs.contains(attr)).collect(Collectors.toList());
-				if (neededFromNowOn.size() == 0)
-					ops.add(newResult);
-				else {
-					Project tempProj = new Project(newResult, neededFromNowOn);
-					tempProj.accept(est);
-					ops.add(tempProj);
-				}
-			}
-		}
-		
-		
-		
-		result = ops.get(0);
-		
-		return ops.get(0);
-	}
 	
-	private static Set<Attribute> getNecessaryAttrs(List<Predicate> predicates, Operator top){
+	/**
+	 * Get the Set of ATTRIBUTEs that are needed based on the List PREDICATEs and the Operator
+	 * 
+	 * @param predicates the PREDICATEs to check for ATTRIBUTEs
+	 * @param root the root Operator in the tree which may not have any additional ATTRIBUTEs
+	 * @return the Set of ATTRIBUTEs necessary still
+	 */
+	private static Set<Attribute> getNecessaryAttrs(List<Predicate> predicates, Operator root){
+		
+		// the Set of necessary ATTRIBUTEs
 		Set<Attribute> attrsNeeded = new HashSet<>();
+		
+		// Iterate over the PREDICATEs
 		Iterator<Predicate> predIt = predicates.iterator();
 		while(predIt.hasNext()){
+			
+			// Add the ATTRIBUTEs of the PREDICATE
 			Predicate currentPred = predIt.next();
 			Attribute left = currentPred.getLeftAttribute();
 			Attribute right = currentPred.getRightAttribute();
+			
 			attrsNeeded.add(left);
 			if (right != null) attrsNeeded.add(right);
 		}
-		if (top instanceof Project) attrsNeeded.addAll(((Project) top).getAttributes());
+		
+		// If root is a PROJECT then add its ATTRIBUTEs in
+		if (root instanceof Project) attrsNeeded.addAll(((Project) root).getAttributes());
+		
 		return attrsNeeded;
 	}
 	
-	private List<List<Predicate>> generatePerm(List<Predicate> original) {
-		if (original.size() == 0) { 
+	/**
+	 * Generate a List of all possible permutations of List of PREDICATEs
+	 * @param attrs the List of ATTRIBUTEs to permute
+	 * @return List of possible permutations of attrs
+	 */
+	private static List<List<Predicate>> generatePerm(List<Predicate> attrs) {
+		
+		// if there's only one element
+		if (attrs.size() == 0) { 
 			List<List<Predicate>> result = new ArrayList<List<Predicate>>();
 		    result.add(new ArrayList<Predicate>());
 		    return result;
 		}
-		Predicate firstElement = original.remove(0);
+		
+		// there are multiple elements, remove the first
+		Predicate first = attrs.remove(0);
 		List<List<Predicate>> returnValue = new ArrayList<List<Predicate>>();
-		List<List<Predicate>> permutations = generatePerm(original);
+		// recursively call
+		List<List<Predicate>> permutations = generatePerm(attrs);
+		
+		// iterate over the permutations
 		for (List<Predicate> smallerPermutated : permutations) {
 		    for (int index=0; index <= smallerPermutated.size(); index++) {
 		    	List<Predicate> temp = new ArrayList<Predicate>(smallerPermutated);
-		    	temp.add(index, firstElement);
+		    	temp.add(index, first);
 		    	returnValue.add(temp);
 		    }
 		}
+		
 		return returnValue;
 	}
 
-	class Sections implements PlanVisitor {
+	/**
+	 * This class extracts the SCANs, PREDICATEs, ATTRIBUTEs from an Opearator plan
+	 * 
+	 * @author shakib-bin hamid
+	 *
+	 */
+	class SectionExtractor implements PlanVisitor {
 		
 		private Set<Attribute> allAttributes = new HashSet<>();
 		private Set<Predicate> allPredicates = new HashSet<>();
 		private Set<Scan> allScans = new HashSet<Scan>();
 		
-
-		@Override
-		public void visit(Scan op) {
-			allScans.add(new Scan((NamedRelation) op.getRelation()));			
-		}
-
-		@Override
-		public void visit(Project op) {
-			for(Attribute attr : op.getAttributes()) {
-				allAttributes.add(new Attribute(attr.getName()));
-			}
-		}
-
-		@Override
-		public void visit(Select op) {
-			if(op.getPredicate().equalsValue()) {
-				allPredicates.add(new Predicate(op.getPredicate().getLeftAttribute(), op.getPredicate().getRightValue()));
-				allAttributes.add(new Attribute(op.getPredicate().getLeftAttribute().getName()));
-			} else {
-				allPredicates.add(new Predicate(op.getPredicate().getLeftAttribute(), op.getPredicate().getRightAttribute()));
-				allAttributes.add(new Attribute(op.getPredicate().getLeftAttribute().getName()));
-				allAttributes.add(new Attribute(op.getPredicate().getRightAttribute().getName()));
-			}			
-		}
-
-		@Override
+		public void visit(Scan op) { allScans.add(op); }
+		public void visit(Project op) { allAttributes.addAll(op.getAttributes()); }
 		public void visit(Product op) {}
-		@Override
-		public void visit(Join op) {}		
+		public void visit(Join op) {}
+		public void visit(Select op) {
+			allPredicates.add(op.getPredicate());
+			allAttributes.add(op.getPredicate().getLeftAttribute());
+			if(!op.getPredicate().equalsValue()) allAttributes.add(op.getPredicate().getRightAttribute());
+		}
 	}
 
 }
