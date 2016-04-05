@@ -8,18 +8,22 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.Stack;
+import java.util.stream.Collectors;
 
 public class Optimiser {
 	
 	private Catalogue cat;
 	
-	public static final Estimator est = new Estimator();
+	private static final Estimator est = new Estimator();
+	private static Operator top;
 
 	public Optimiser(Catalogue cat) {
 		this.cat = cat;
 	}
 
 	public Operator optimise(Operator plan) {
+		
+		top = plan;
 	
 		Sections s = new Sections();
 		plan.accept(s);
@@ -36,9 +40,9 @@ public class Optimiser {
 		
 		Operator secondStageResult = buildProductOrJoin(operationBlocks, s.allPredicates);
 	
-		if (plan instanceof Project)
-			return new Project(secondStageResult, ((Project) plan).getAttributes());
-		else
+//		if (plan instanceof Project)
+//			return new Project(secondStageResult, ((Project) top).getAttributes());
+//		else
 			return secondStageResult;
 	}
 
@@ -89,8 +93,25 @@ public class Optimiser {
 			}
 			
 			newResult.accept(est);
-			ops.add(newResult);
+			//ops.add(newResult);
+			Set<Attribute> neededAttrs = getNecessaryAttrs(preds, top);
+			if (neededAttrs.size() == newResult.getOutput().getAttributes().size() &&
+					newResult.getOutput().getAttributes().containsAll(neededAttrs)){
+				ops.add(newResult);
+			}else{
+				List<Attribute> neededFromNowOn = newResult.getOutput().getAttributes().stream().filter(attr -> neededAttrs.contains(attr)).collect(Collectors.toList());
+				if (neededFromNowOn.size() == 0)
+					ops.add(newResult);
+				else {
+					Project tempProj = new Project(newResult, neededFromNowOn);
+					tempProj.accept(est);
+					ops.add(tempProj);
+				}
+			}
+			
 		}
+		
+		result = ops.get(0);
 		
 		return ops.get(0);
 	}
@@ -156,6 +177,20 @@ public class Optimiser {
 		}
 	}
 	
+	private static Set<Attribute> getNecessaryAttrs(Set<Predicate> predicates, Operator top){
+		Set<Attribute> attrsNeeded = new HashSet<>();
+		Iterator<Predicate> predIt = predicates.iterator();
+		while(predIt.hasNext()){
+			Predicate currentPred = predIt.next();
+			Attribute left = currentPred.getLeftAttribute();
+			Attribute right = currentPred.getRightAttribute();
+			attrsNeeded.add(left);
+			if (right != null) attrsNeeded.add(right);
+		}
+		if (top instanceof Project) attrsNeeded.addAll(((Project) top).getAttributes());
+		return attrsNeeded;
+	}
+	
 	public static List<Operator> firstStage(Set<Scan> scans, Set<Attribute> attrs, Set<Predicate> predicates) {
 		List<Operator> ops = new ArrayList<>(scans.size());
 		
@@ -169,9 +204,9 @@ public class Optimiser {
 
 	class Sections implements PlanVisitor {
 		
-		public Set<Attribute> allAttributes = new HashSet<>();
-		public Set<Predicate> allPredicates = new HashSet<>();
-		public Set<Scan> allScans = new HashSet<Scan>();
+		private Set<Attribute> allAttributes = new HashSet<>();
+		private Set<Predicate> allPredicates = new HashSet<>();
+		private Set<Scan> allScans = new HashSet<Scan>();
 		
 
 		@Override
