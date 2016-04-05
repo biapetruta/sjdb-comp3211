@@ -14,33 +14,30 @@ import java.util.stream.Collectors;
  * @author shakib-bin hamid
  * 
  */
-public class Optimiser {
+public class Optimiser implements PlanVisitor {
 	
 	@SuppressWarnings("unused")
 	private Catalogue cat; // taken care of in the estimator
 	
 	private static final Estimator EST = new Estimator(); // the Estimator in Use here
-	private static Operator root; // 
 
 	public Optimiser(Catalogue cat) {
 		this.cat = cat;
 	}
 
 	public Operator optimise(Operator plan) {
-		
-		root = plan;
 	
-		SectionExtractor extractor = new SectionExtractor();
-		plan.accept(extractor);
+		//SectionExtractor extractor = new SectionExtractor();
+		plan.accept(this);
 		
 		// push down the SELECTs and PROJECTs to the Scan leaves on the canonical plan
-		List<Operator> operationBlocks = pushSelectsAndProjectsDownForScans(extractor.allScans, extractor.allAttributes, extractor.allPredicates);
+		List<Operator> operationBlocks = pushSelectsAndProjectsDownForScans(allScans, allAttributes, allPredicates);
 		
 		// then from those blocks, exhaust the SELECTS by creating JOINs, 
 		// putting extra SELECTs and remove unnecessary ATTRIBUTES by adding PROJECTs as we go along and 
 		// finally make PRODUCTs if necessary, once all that could be selected or projected or joined
 		// reorder for each permutation of predicate order
-		Operator optimisedPlan = createBESTOrderOfJoinOrProducts(extractor.allPredicates, operationBlocks);
+		Operator optimisedPlan = createBESTOrderOfJoinOrProducts(allPredicates, operationBlocks, plan);
 		
 		return optimisedPlan;
 	}
@@ -52,9 +49,10 @@ public class Optimiser {
 	 * 
 	 * @param preds the Set of PREDICATEs to Permute (Will get turned to List inside)
 	 * @param ops the List of Operators to build the tree out of
-	 * @return
+	 * @param root the root of the tree
+	 * @return the Operator with the best of everything
 	 */
-	public static Operator createBESTOrderOfJoinOrProducts(Set<Predicate> originalPreds, List<Operator> ops){
+	private static Operator createBESTOrderOfJoinOrProducts(Set<Predicate> originalPreds, List<Operator> ops, Operator root){
 		
 		// The list of PREDICATEs - necessary to permute on List, Set does not permute
 		List<Predicate> preds = new ArrayList<>();
@@ -75,7 +73,7 @@ public class Optimiser {
 			tempOps.addAll(ops);
 			
 			// make a tree
-			Operator aPlan = buildProductOrJoin(tempOps, p);
+			Operator aPlan = buildProductOrJoin(tempOps, p, root);
 			
 			Integer i = EST.getCost(aPlan);
 			System.out.println("Found plan with cost: " + i);
@@ -99,7 +97,7 @@ public class Optimiser {
 	 * @return the List of Operator BLOCKS in (SCAN => [SELECT] x n => [PROJECT]_neededAttrs) form,
 	 * 			predicates will be mutated and truncated by removing the used ones
 	 */
-	public static List<Operator> pushSelectsAndProjectsDownForScans(Set<Scan> scans, Set<Attribute> attrs, Set<Predicate> predicates) {
+	private static List<Operator> pushSelectsAndProjectsDownForScans(Set<Scan> scans, Set<Attribute> attrs, Set<Predicate> predicates) {
 		
 		// the block of resultant operators from each of the SCANs
 		List<Operator> operatorBlocks = new ArrayList<>(scans.size());
@@ -123,7 +121,7 @@ public class Optimiser {
 	 * @return an Operator that is in the form of (op => [SELECT] x n) and
 	 * 			the Set of PREDICATES is mutated and truncated by removing the used ones
 	 */
-	public static Operator buildSelectsOnTop(Operator op, Set<Predicate> preds){
+	private static Operator buildSelectsOnTop(Operator op, Set<Predicate> preds){
 		
 		// The result
 		Operator result = op;
@@ -164,7 +162,7 @@ public class Optimiser {
 	 * @param attrs the Set of ATTRIBUTES to check for
 	 * @return an Operator in the form of [op] || [PROJECT => op]
 	 */
-	public static Operator buildProjectOnTop(Operator op, Set<Attribute> attrs){
+	private static Operator buildProjectOnTop(Operator op, Set<Attribute> attrs){
 
 		// if op doesn't have an output, fix that
 		if(op.getOutput() == null) op.accept(EST);
@@ -196,10 +194,11 @@ public class Optimiser {
 	 * 
 	 * @param ops the List of Operators to process into PRODUCTs, JOINs or SELECTs
 	 * @param preds The List of Predicates to check through
+	 * @param root the root of the tree
 	 * @return One Operator where all the operations are performed in form
 	 * 			[JOIN] x n <=> [SELECT] x n <=> [TIMES] x n <=> [PROJECT] x n
 	 */
-	public static Operator buildProductOrJoin(List<Operator> ops, List<Predicate> preds){
+	private static Operator buildProductOrJoin(List<Operator> ops, List<Predicate> preds, Operator root){
 		
 		Operator result = null;
 		
@@ -365,28 +364,18 @@ public class Optimiser {
 		
 		return returnValue;
 	}
-
-	/**
-	 * This class extracts the SCANs, PREDICATEs, ATTRIBUTEs from an Opearator plan
-	 * 
-	 * @author shakib-bin hamid
-	 *
-	 */
-	class SectionExtractor implements PlanVisitor {
 		
-		private Set<Attribute> allAttributes = new HashSet<>();
-		private Set<Predicate> allPredicates = new HashSet<>();
-		private Set<Scan> allScans = new HashSet<Scan>();
-		
-		public void visit(Scan op) { allScans.add(op); }
-		public void visit(Project op) { allAttributes.addAll(op.getAttributes()); }
-		public void visit(Product op) {}
-		public void visit(Join op) {}
-		public void visit(Select op) {
-			allPredicates.add(op.getPredicate());
-			allAttributes.add(op.getPredicate().getLeftAttribute());
-			if(!op.getPredicate().equalsValue()) allAttributes.add(op.getPredicate().getRightAttribute());
-		}
+	private Set<Attribute> allAttributes = new HashSet<>();
+	private Set<Predicate> allPredicates = new HashSet<>();
+	private Set<Scan> allScans = new HashSet<Scan>();
+	
+	public void visit(Scan op) { allScans.add(op); }
+	public void visit(Project op) { allAttributes.addAll(op.getAttributes()); }
+	public void visit(Product op) {}
+	public void visit(Join op) {}
+	public void visit(Select op) {
+		allPredicates.add(op.getPredicate());
+		allAttributes.add(op.getPredicate().getLeftAttribute());
+		if(!op.getPredicate().equalsValue()) allAttributes.add(op.getPredicate().getRightAttribute());
 	}
-
 }
