@@ -8,7 +8,8 @@ public class Estimator implements PlanVisitor {
 	
 	// local record of attributes. Should have access to catalouge really....
 	Map<String, Attribute> attrs = new HashMap<String, Attribute>();
-
+	private int totalCost = 0;
+	
 	public Estimator() {
 		// empty constructor
 	}
@@ -29,9 +30,10 @@ public class Estimator implements PlanVisitor {
 			attrs.put(attr.getName(), new Attribute(attr));
 		}
 		
-		System.out.println("SCAN " + output.render());
+		//System.out.println("SCAN " + output.render());
 		
 		op.setOutput(output);
+		totalCost += output.getTupleCount();
 	}
 
 	public void visit(Project op) {
@@ -43,10 +45,11 @@ public class Estimator implements PlanVisitor {
 		// add the attributes in the project
 		op.getAttributes().forEach(attr -> output.addAttribute(new Attribute(attrs.get(attr.getName()))));
 		
-		System.out.println("PROJECT " + output.render());
+		//System.out.println("PROJECT " + output.render());
 		
 		// set output for the project
 		op.setOutput(output);
+		totalCost += output.getTupleCount();
 	}
 	
 	public void visit(Select op) {
@@ -99,10 +102,11 @@ public class Estimator implements PlanVisitor {
 		}
 		
 		
-		System.out.println("SELECT " + output.render());
+		//System.out.println("SELECT " + output.render());
 		
 		// set the output to select
 		op.setOutput(output);
+		totalCost += output.getTupleCount();
 	}
 	
 	public void visit(Product op) {
@@ -120,10 +124,11 @@ public class Estimator implements PlanVisitor {
 		// add attributes from right
 		right.getAttributes().forEach(attr -> output.addAttribute(new Attribute(attr)));
 		
-		System.out.println("PRODUCT " + output.render());
+		//System.out.println("PRODUCT " + output.render());
 		
 		// set the output of the product
 		op.setOutput(output);
+		totalCost += output.getTupleCount();
 	}
 	
 	public void visit(Join op) {
@@ -165,5 +170,12 @@ public class Estimator implements PlanVisitor {
 		attrs.put(join_attr_right.getName(), join_attr_right);
 		
 		op.setOutput(output);
+		totalCost += output.getTupleCount();
+	}
+	
+	public int getCost(Operator plan) {
+		this.totalCost = 0;
+		plan.accept(this);		
+		return this.totalCost;
 	}
 }

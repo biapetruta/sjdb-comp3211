@@ -35,15 +35,43 @@ public class Optimiser {
 		//Shakibs method
 		List<Operator> operationBlocks = firstStage(s.allScans, s.allAttributes, s.allPredicates);
 		
-		//Sort operationBlocks on estimated size
-		//Collections.sort(operationBlocks, new tupleCountComparator());
+		List<Predicate> preds = new ArrayList<>();
+		preds.addAll(s.allPredicates);
 		
-		Operator secondStageResult = buildProductOrJoin(operationBlocks, s.allPredicates);
+		List<List<Predicate>> permutedPredicates = generatePerm(preds);
+		
+		
+		Operator cheapestPlan = null;
+		Integer cheapestCost = Integer.MAX_VALUE;
+		
+		for (List<Predicate> p : permutedPredicates) {
+			
+			List<Operator> blocks = new ArrayList<>();
+			blocks.addAll(operationBlocks);
+			
+			Operator aPlan = buildProductOrJoin(blocks, p);
+			
+			Integer i = est.getCost(aPlan);
+			System.out.println("Found plan with cost: " + i);
+			
+			cheapestPlan = (i < cheapestCost) ? aPlan : cheapestPlan;
+			cheapestCost = (i < cheapestCost) ? i : cheapestCost;
+		}
+		
+		System.out.println("Cheapest cost = " + est.getCost(cheapestPlan));
+		
+//		if (plan instanceof Project)
+//			return new Project(cheapestPlan, ((Project) plan).getAttributes());
+//		else
+			return cheapestPlan;
+		
+		
+		
 	
 //		if (plan instanceof Project)
 //			return new Project(secondStageResult, ((Project) top).getAttributes());
 //		else
-			return secondStageResult;
+//			return secondStageResult;
 	}
 
 	
@@ -66,7 +94,7 @@ public class Optimiser {
 		return null;
 	}
 
-	public static Operator buildProductOrJoin(List<Operator> ops, Set<Predicate> preds){
+	public static Operator buildProductOrJoin(List<Operator> ops, List<Predicate> preds){
 		
 		Operator result = null;
 		
@@ -177,7 +205,7 @@ public class Optimiser {
 		}
 	}
 	
-	private static Set<Attribute> getNecessaryAttrs(Set<Predicate> predicates, Operator top){
+	private static Set<Attribute> getNecessaryAttrs(List<Predicate> predicates, Operator top){
 		Set<Attribute> attrsNeeded = new HashSet<>();
 		Iterator<Predicate> predIt = predicates.iterator();
 		while(predIt.hasNext()){
@@ -200,6 +228,25 @@ public class Optimiser {
 		}
 		
 		return ops;
+	}
+	
+	private List<List<Predicate>> generatePerm(List<Predicate> original) {
+		if (original.size() == 0) { 
+			List<List<Predicate>> result = new ArrayList<List<Predicate>>();
+		    result.add(new ArrayList<Predicate>());
+		    return result;
+		}
+		Predicate firstElement = original.remove(0);
+		List<List<Predicate>> returnValue = new ArrayList<List<Predicate>>();
+		List<List<Predicate>> permutations = generatePerm(original);
+		for (List<Predicate> smallerPermutated : permutations) {
+		    for (int index=0; index <= smallerPermutated.size(); index++) {
+		    	List<Predicate> temp = new ArrayList<Predicate>(smallerPermutated);
+		    	temp.add(index, firstElement);
+		    	returnValue.add(temp);
+		    }
+		}
+		return returnValue;
 	}
 
 	class Sections implements PlanVisitor {
