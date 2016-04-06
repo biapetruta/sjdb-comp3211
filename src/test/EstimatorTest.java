@@ -12,7 +12,6 @@ import sjdb.Catalogue;
 import sjdb.DatabaseException;
 import sjdb.Estimator;
 import sjdb.Join;
-import sjdb.NamedRelation;
 import sjdb.Operator;
 import sjdb.Predicate;
 import sjdb.Product;

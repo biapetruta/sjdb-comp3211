@@ -67,7 +67,7 @@ public class Estimator implements PlanVisitor {
 		if(p.equalsValue()) {
 			// attr = val
 			output = new Relation(input.getTupleCount()/left.getValueCount());
-			output_left_attr = new Attribute(left.getName(), 1);
+			output_left_attr = new Attribute(left.getName(), Math.min(1, output.getTupleCount()));
 			
 			// add the attributes from the original relation except the selection attrs, A			
 			input.getAttributes()
@@ -83,7 +83,7 @@ public class Estimator implements PlanVisitor {
 			Attribute right = new Attribute(attrs.get(p.getRightAttribute().getName())); // right != null
 			output = new Relation(input.getTupleCount()/Math.max(left.getValueCount(), right.getValueCount()));
 			
-			int size = Math.min(left.getValueCount(), right.getValueCount());
+			int size = Math.min(Math.min(left.getValueCount(), right.getValueCount()), output.getTupleCount());
 			output_left_attr = new Attribute(left.getName(), size);
 			Attribute output_right_attr = new Attribute(right.getName(), size);
 			
@@ -145,7 +145,7 @@ public class Estimator implements PlanVisitor {
 		Relation output = new Relation(left.getTupleCount() * right.getTupleCount() / Math.max(attr_left.getValueCount(), attr_right.getValueCount()));
 		
 		// V(R_join, A) = V(R_join, A) = min ( V(R,A) , V(S,B) )
-		int uniq_size = Math.min(attr_left.getValueCount(), attr_right.getValueCount());
+		int uniq_size = Math.min(Math.min(attr_left.getValueCount(), attr_right.getValueCount()), output.getTupleCount());
 		Attribute join_attr_left = new Attribute(attr_left.getName(), uniq_size);
 		Attribute join_attr_right = new Attribute(attr_right.getName(), uniq_size);
 		
