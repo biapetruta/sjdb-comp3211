@@ -31,7 +31,7 @@ public class Optimiser implements PlanVisitor {
 		plan.accept(this);
 		
 		// push down the SELECTs and PROJECTs to the Scan leaves on the canonical plan
-		List<Operator> operationBlocks = pushSelectsAndProjectsDownForScans(allScans, allAttributes, allPredicates);
+		List<Operator> operationBlocks = pushSelectsAndProjectsDownForScans(allScans, allAttributes, allPredicates, plan);
 		
 		// then from those blocks, exhaust the SELECTS by creating JOINs, 
 		// putting extra SELECTs and remove unnecessary ATTRIBUTES by adding PROJECTs as we go along and 
@@ -94,10 +94,11 @@ public class Optimiser implements PlanVisitor {
 	 * @param scans the SCAN operators
 	 * @param attrs the COMPLETE set of ATTRIBUTES needed from the scans
 	 * @param predicates the COMPLETE set of PREDICATES needed from the scans
+	 * @param root 
 	 * @return the List of Operator BLOCKS in (SCAN => [SELECT] x n => [PROJECT]_neededAttrs) form,
 	 * 			predicates will be mutated and truncated by removing the used ones
 	 */
-	private static List<Operator> pushSelectsAndProjectsDownForScans(Set<Scan> scans, Set<Attribute> attrs, Set<Predicate> predicates) {
+	private static List<Operator> pushSelectsAndProjectsDownForScans(Set<Scan> scans, Set<Attribute> attrs, Set<Predicate> predicates, Operator root) {
 		
 		// the block of resultant operators from each of the SCANs
 		List<Operator> operatorBlocks = new ArrayList<>(scans.size());
@@ -105,8 +106,11 @@ public class Optimiser implements PlanVisitor {
 		for (Scan s: scans){
 			// to SCAN => [SELECT] x n
 			Operator o = buildSelectsOnTop(s, predicates);
+			List<Predicate> temp = new ArrayList<>();
+			temp.addAll(predicates);
+			getNecessaryAttrs(temp, root);
 			// [SCAN] || [SELECT] x n => [PROJECT]
-			operatorBlocks.add(buildProjectOnTop(o, attrs));
+			operatorBlocks.add(buildProjectOnTop(o, getNecessaryAttrs(temp, root)));
 		}
 		
 		return operatorBlocks;
@@ -369,7 +373,7 @@ public class Optimiser implements PlanVisitor {
 	private Set<Predicate> allPredicates = new HashSet<>();
 	private Set<Scan> allScans = new HashSet<Scan>();
 	
-	public void visit(Scan op) { allScans.add(op); }
+	public void visit(Scan op) { allScans.add(new Scan((NamedRelation)op.getRelation())); }
 	public void visit(Project op) { allAttributes.addAll(op.getAttributes()); }
 	public void visit(Product op) {}
 	public void visit(Join op) {}
