@@ -1,13 +1,11 @@
 package sjdb;
 
-import java.util.Map;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 
 public class Estimator implements PlanVisitor {
 	
-	// local record of attributes. Should have access to catalouge really....
-	Map<String, Attribute> attrs = new HashMap<String, Attribute>();
 	private int totalCost = 0;
 	
 	public Estimator() {
@@ -27,7 +25,6 @@ public class Estimator implements PlanVisitor {
 		while (iter.hasNext()) {
 			Attribute attr = iter.next();
 			output.addAttribute(new Attribute(attr)); // add attribute to local record
-			attrs.put(attr.getName(), new Attribute(attr));
 		}
 		
 		//System.out.println("SCAN " + output.render());
@@ -39,11 +36,17 @@ public class Estimator implements PlanVisitor {
 	public void visit(Project op) {
 		
 		// get the inputs from the 
-		Relation input = op.getInput().getOutput();
-		Relation output = new Relation(input.getTupleCount());
+		Relation rel_input = op.getInput().getOutput();
+		Relation output = new Relation(rel_input.getTupleCount());
 		
 		// add the attributes in the project
-		op.getAttributes().forEach(attr -> output.addAttribute(new Attribute(attrs.get(attr.getName()))));
+		for(Attribute attr_needed : op.getAttributes()){
+			for (Attribute attr_found : rel_input.getAttributes()) {
+				if (attr_needed.equals(attr_found)) {
+					output.addAttribute(new Attribute(attr_found.getName(), attr_found.getValueCount()));
+				}
+			}
+		}
 		
 		//System.out.println("PROJECT " + output.render());
 		
@@ -55,7 +58,7 @@ public class Estimator implements PlanVisitor {
 	public void visit(Select op) {
 		
 		Predicate p = op.getPredicate(); // the predicate
-		Attribute left = new Attribute(attrs.get(p.getLeftAttribute().getName())); // left attr != null
+		Attribute attr_left = new Attribute(p.getLeftAttribute().getName()); // left attr != null
 		
 		// the new attributes from select predicate with new value counts
 		Attribute output_left_attr = null;
@@ -64,43 +67,46 @@ public class Estimator implements PlanVisitor {
 		Relation input = op.getInput().getOutput();
 		Relation output;
 		
-		if(p.equalsValue()) {
-			// attr = val
-			output = new Relation(input.getTupleCount()/left.getValueCount());
-			output_left_attr = new Attribute(left.getName(), Math.min(1, output.getTupleCount()));
-			
-			// add the attributes from the original relation except the selection attrs, A			
-			input.getAttributes()
-				 .stream()
-				 .filter(attr -> !attr.equals(left))
-				 .forEach(attr -> output.addAttribute(new Attribute(attr)));
-			
-			// add left attr always
-			output.addAttribute(output_left_attr);
-			attrs.put(output_left_attr.getName(), output_left_attr); // add to local record
-		} else {
-			// attr = attr
-			Attribute right = new Attribute(attrs.get(p.getRightAttribute().getName())); // right != null
-			output = new Relation(input.getTupleCount()/Math.max(left.getValueCount(), right.getValueCount()));
-			
-			int size = Math.min(Math.min(left.getValueCount(), right.getValueCount()), output.getTupleCount());
-			output_left_attr = new Attribute(left.getName(), size);
-			Attribute output_right_attr = new Attribute(right.getName(), size);
-			
-			// add the attributes from the original relation except the selection attrs, A			
-			input.getAttributes()
-				 .stream()
-				 .filter(attr -> !attr.equals(left) && !attr.equals(right))
-				 .forEach(attr -> output.addAttribute(new Attribute(attr)));
-			
-			// add left attr always
-			output.addAttribute(output_left_attr);
-			attrs.put(output_left_attr.getName(), output_left_attr); // add to local record
-			
-			output.addAttribute(output_right_attr);
-			attrs.put(output_right_attr.getName(), output_right_attr); // add to local record
+		// find and fill in the right left attribute value count
+		for(Attribute attr_found : input.getAttributes()){
+			if (attr_found.equals(attr_left)) attr_left = new Attribute(attr_found.getName(), attr_found.getValueCount());
 		}
 		
+		if(p.equalsValue()) {
+			// attr = val
+			output = new Relation(input.getTupleCount()/attr_left.getValueCount());
+			output_left_attr = new Attribute(attr_left.getName(), Math.min(1, output.getTupleCount()));
+		
+			for (Attribute attr : input.getAttributes()){
+				if (!attr.equals(attr_left)) {
+					output.addAttribute(new Attribute(attr));
+				}
+			}
+			
+			// add left attr always
+			output.addAttribute(output_left_attr);
+		} else {
+			// attr = attr
+			Attribute attr_right = new Attribute(p.getRightAttribute().getName()); // right != null
+			output = new Relation(input.getTupleCount()/Math.max(attr_left.getValueCount(), attr_right.getValueCount()));
+			
+			for(Attribute attr_found : input.getAttributes()){
+				if (attr_found.equals(attr_right)) attr_right = new Attribute(attr_found.getName(), attr_found.getValueCount());
+			}
+			
+			int size = Math.min(Math.min(attr_left.getValueCount(), attr_right.getValueCount()), output.getTupleCount());
+			output_left_attr = new Attribute(attr_left.getName(), size);
+			Attribute output_right_attr = new Attribute(attr_right.getName(), size);
+			
+			// add the attributes from the original relation except the selection attrs, A			
+			for (Attribute attr : input.getAttributes()){
+				if (!attr.equals(attr_left) && !attr.equals(attr_right)) output.addAttribute(new Attribute(attr));
+			}
+			
+			// add both attrs
+			output.addAttribute(output_left_attr);
+			output.addAttribute(output_right_attr);
+		}
 		
 		//System.out.println("SELECT " + output.render());
 		
@@ -119,10 +125,10 @@ public class Estimator implements PlanVisitor {
 		Relation output = new Relation(left.getTupleCount() * right.getTupleCount());
 		
 		// add attributes from left
-		left.getAttributes().forEach(attr -> output.addAttribute(new Attribute(attr)));
+		left.getAttributes().forEach(attr -> output.addAttribute(new Attribute(attr.getName(), attr.getValueCount())));
 		
 		// add attributes from right
-		right.getAttributes().forEach(attr -> output.addAttribute(new Attribute(attr)));
+		right.getAttributes().forEach(attr -> output.addAttribute(new Attribute(attr.getName(), attr.getValueCount())));
 		
 		//System.out.println("PRODUCT " + output.render());
 		
@@ -134,15 +140,24 @@ public class Estimator implements PlanVisitor {
 	public void visit(Join op) {
 		
 		// get output from two subtrees
-		Relation left = op.getLeft().getOutput();
-		Relation right = op.getRight().getOutput();
+		Relation left_rel = op.getLeft().getOutput();
+		Relation right_rel = op.getRight().getOutput();
 		
 		Predicate p = op.getPredicate(); // the predicate
-		Attribute attr_left = new Attribute(attrs.get(p.getLeftAttribute().getName())); // left attr != null
-		Attribute attr_right = new Attribute(attrs.get(p.getRightAttribute().getName())); // right attr != null
+		Attribute attr_left = new Attribute(p.getLeftAttribute().getName()); // left attr != null
+		Attribute attr_right = new Attribute(p.getRightAttribute().getName()); // right attr != null
+		
+		// get the correct valuecounts for the attributes
+		List<Attribute> all_attrs = new ArrayList<>();
+		all_attrs.addAll(left_rel.getAttributes());
+		all_attrs.addAll(right_rel.getAttributes());
+		for(Attribute attr_found : all_attrs){
+			if (attr_found.equals(attr_left)) attr_left = new Attribute(attr_found.getName(), attr_found.getValueCount());
+			if (attr_found.equals(attr_right)) attr_right = new Attribute(attr_found.getName(), attr_found.getValueCount());
+		}
 		
 		// output of the join.c_tuple = T(R) * T(S) / max ( V(R,A) , V(S,B) )
-		Relation output = new Relation(left.getTupleCount() * right.getTupleCount() / Math.max(attr_left.getValueCount(), attr_right.getValueCount()));
+		Relation output = new Relation(left_rel.getTupleCount() * right_rel.getTupleCount() / Math.max(attr_left.getValueCount(), attr_right.getValueCount()));
 		
 		// V(R_join, A) = V(R_join, A) = min ( V(R,A) , V(S,B) )
 		int uniq_size = Math.min(Math.min(attr_left.getValueCount(), attr_right.getValueCount()), output.getTupleCount());
@@ -150,7 +165,7 @@ public class Estimator implements PlanVisitor {
 		Attribute join_attr_right = new Attribute(attr_right.getName(), uniq_size);
 		
 		// add the attributes from left relation
-		Iterator<Attribute> liter = left.getAttributes().iterator();
+		Iterator<Attribute> liter = left_rel.getAttributes().iterator();
 		while (liter.hasNext()) {
 			Attribute attr = liter.next();
 			if(!attr.equals(attr_left)) output.addAttribute(new Attribute(attr));
@@ -158,16 +173,12 @@ public class Estimator implements PlanVisitor {
 		}
 		
 		// add the attributes from the right relation
-		Iterator<Attribute> riter = right.getAttributes().iterator();
+		Iterator<Attribute> riter = right_rel.getAttributes().iterator();
 		while (riter.hasNext()) {
 			Attribute attr = riter.next();
 			if(!attr.equals(attr_right)) output.addAttribute(new Attribute(attr));
 			else output.addAttribute(join_attr_right);
 		}
-		
-		// add the attributes to the local record
-		attrs.put(join_attr_left.getName(), join_attr_left);
-		attrs.put(join_attr_right.getName(), join_attr_right);
 		
 		op.setOutput(output);
 		totalCost += output.getTupleCount();
